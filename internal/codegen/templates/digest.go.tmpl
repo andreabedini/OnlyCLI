@@ -219,6 +219,9 @@ func digestHash(algorithm string) func(string) string {
 			return hex.EncodeToString(h.Sum(nil))
 		}
 	default: // MD5 (default), MD5-SESS
+		// NOTE: MD5 is deprecated per RFC 7616 and should be avoided in
+		// production. Prefer SHA-256 or SHA-512-256 when the server supports
+		// them.
 		return func(s string) string {
 			h := md5.Sum([]byte(s))
 			return hex.EncodeToString(h[:])

@@ -540,10 +540,6 @@ func TestIntegration_DigestAuthAutoDetect(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, gen.Generate())
 
-	_, err = exec.Command("go", "mod", "tidy").CombinedOutput()
-	// We just check the generated code structure, not compilation here
-	_ = err
-
 	clientContent, err := os.ReadFile(filepath.Join(outDir, "runtime", "client.go"))
 	require.NoError(t, err)
 	assert.Contains(t, string(clientContent), `"digest"`)

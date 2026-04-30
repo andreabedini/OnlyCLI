@@ -97,7 +97,7 @@ var configGetCmd = &cobra.Command{
 		case "username":
 			out = p.Username
 		case "password":
-			out = p.Password
+			out = maskSecret(p.Password)
 		}
 		fmt.Fprintln(os.Stdout, out)
 		return nil
@@ -176,6 +176,15 @@ func getRuntimeProfile(cfg *runtime.Config, name string) *runtime.Profile {
 		return nil
 	}
 	return cfg.Profiles[name]
+}
+
+// maskSecret returns a masked representation of a secret value to prevent
+// accidental exposure in terminal output or logs.
+func maskSecret(s string) string {
+	if s == "" {
+		return "(not set)"
+	}
+	return "****"
 }
 
 func init() {

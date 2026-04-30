@@ -181,7 +181,7 @@ func init() {
 	authCmd.AddCommand(authLogoutCmd)
 {{- if .HasDigest}}
 	authLoginCmd.Flags().String("username", "", "Username for digest authentication")
-	authLoginCmd.Flags().String("password", "", "Password for digest authentication")
+	authLoginCmd.Flags().String("password", "", "Password for digest authentication (prefer env var for security)")
 	_ = authLoginCmd.MarkFlagRequired("username")
 	_ = authLoginCmd.MarkFlagRequired("password")
 {{- end}}
