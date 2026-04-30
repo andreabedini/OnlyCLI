@@ -16,6 +16,8 @@ var allowedConfigKeys = map[string]struct{}{
 	"token":     {},
 	"base_url":  {},
 	"auth_type": {},
+	"username":  {},
+	"password":  {},
 }
 
 var configCmd = &cobra.Command{
@@ -39,7 +41,7 @@ var configSetCmd = &cobra.Command{
 			return err
 		}
 		if _, ok := allowedConfigKeys[key]; !ok {
-			return fmt.Errorf("unknown config key %q (allowed: token, base_url, auth_type)", key)
+			return fmt.Errorf("unknown config key %q (allowed: token, base_url, auth_type, username, password)", key)
 		}
 		p := ensureRuntimeProfile(cfg, profileName)
 		switch key {
@@ -49,6 +51,10 @@ var configSetCmd = &cobra.Command{
 			p.BaseURL = value
 		case "auth_type":
 			p.AuthType = value
+		case "username":
+			p.Username = value
+		case "password":
+			p.Password = value
 		}
 		if err := runtime.SaveConfig(cfg); err != nil {
 			return fmt.Errorf("save config (%s): %w", runtime.ConfigPath(), err)
@@ -73,7 +79,7 @@ var configGetCmd = &cobra.Command{
 			return err
 		}
 		if _, ok := allowedConfigKeys[key]; !ok {
-			return fmt.Errorf("unknown config key %q (allowed: token, base_url, auth_type)", key)
+			return fmt.Errorf("unknown config key %q (allowed: token, base_url, auth_type, username, password)", key)
 		}
 		p := getRuntimeProfile(cfg, profileName)
 		if p == nil {
@@ -88,6 +94,10 @@ var configGetCmd = &cobra.Command{
 			out = p.BaseURL
 		case "auth_type":
 			out = p.AuthType
+		case "username":
+			out = p.Username
+		case "password":
+			out = p.Password
 		}
 		fmt.Fprintln(os.Stdout, out)
 		return nil

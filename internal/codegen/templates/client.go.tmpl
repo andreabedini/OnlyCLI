@@ -31,6 +31,8 @@ type Response struct {
 type Client struct {
 	BaseURL    string
 	Token      string
+	Username   string
+	Password   string
 	AuthType   string
 	Verbose    bool
 	PageLimit  int
@@ -82,12 +84,15 @@ func NewClientFromConfig(cmd *cobra.Command) *Client {
 	}
 
 	var baseURL, token, authType string
+	var username, password string
 	if cfg, err := LoadConfig(); err == nil && cfg != nil {
 		p := GetProfile(cfg, profile)
 		if p != nil {
 			baseURL = p.BaseURL
 			token = p.Token
 			authType = p.AuthType
+			username = p.Username
+			password = p.Password
 		}
 	}
 	if baseURL == "" {
@@ -102,6 +107,12 @@ func NewClientFromConfig(cmd *cobra.Command) *Client {
 	if authType == "" {
 		authType = "{{.AuthType}}"
 	}
+	if username == "" {
+		username = os.Getenv("{{.EnvPrefix}}_USERNAME")
+	}
+	if password == "" {
+		password = os.Getenv("{{.EnvPrefix}}_PASSWORD")
+	}
 
 	tr := &http.Transport{
 		TLSClientConfig:    &tls.Config{MinVersion: tls.VersionTLS12},
@@ -109,16 +120,23 @@ func NewClientFromConfig(cmd *cobra.Command) *Client {
 		DisableCompression: true,
 	}
 
+	var transport http.RoundTripper = tr
+	if strings.ToLower(authType) == "digest" {
+		transport = newDigestTransport(tr, username, password)
+	}
+
 	return &Client{
 		BaseURL:    baseURL,
 		Token:      token,
+		Username:   username,
+		Password:   password,
 		AuthType:   authType,
 		Verbose:    verbose,
 		PageLimit:  pageLimit,
 		DryRun:     dryRun,
 		MaxRetries: maxRetries,
 		Stream:     stream,
-		HTTPClient: &http.Client{Transport: tr},
+		HTTPClient: &http.Client{Transport: transport},
 	}
 }
 
@@ -511,6 +529,8 @@ func (c *Client) applyRequestHeaders(req *http.Request, hasBody bool) {
 			req.Header.Set("Authorization", "Basic "+c.Token)
 		case "apikey":
 			req.Header.Set("Authorization", c.Token)
+		case "digest":
+			// Authorization header is computed by the digest transport layer.
 		}
 	}
 	if hasBody {

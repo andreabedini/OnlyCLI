@@ -260,6 +260,32 @@ func TestParseAutoDetectApiKeyAuth(t *testing.T) {
 	assert.Equal(t, "apikey", spec.AuthType, "should auto-detect apiKey auth from security scheme")
 }
 
+func TestParseAutoDetectDigestAuth(t *testing.T) {
+	specBytes, err := os.ReadFile("../testdata/digest_spec.yaml")
+	require.NoError(t, err)
+
+	// Pass empty authType to test auto-detection
+	spec, err := Parse(specBytes, "digest-api", "", "", "github.com/example/digest-api-cli")
+	require.NoError(t, err)
+
+	assert.Equal(t, "digest", spec.AuthType, "should auto-detect digest auth from security scheme")
+	assert.Equal(t, "digest-api", spec.Name)
+	assert.Equal(t, "https://digest-api.example.com/v1", spec.BaseURL)
+}
+
+func TestParseDigestSpec(t *testing.T) {
+	specBytes, err := os.ReadFile("../testdata/digest_spec.yaml")
+	require.NoError(t, err)
+
+	spec, err := Parse(specBytes, "digest-api", "digest", "", "github.com/example/digest-api-cli")
+	require.NoError(t, err)
+
+	assert.Equal(t, "digest", spec.AuthType)
+	assert.Len(t, spec.Groups, 1)
+	assert.Equal(t, "resources", spec.Groups[0].Name)
+	assert.Len(t, spec.Groups[0].Commands, 3)
+}
+
 func TestParseEmptySpec(t *testing.T) {
 	specBytes := []byte(`
 openapi: "3.0.0"

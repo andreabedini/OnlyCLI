@@ -16,7 +16,7 @@ func TestNewGenerator(t *testing.T) {
 	g, err := NewGenerator(spec, t.TempDir())
 	require.NoError(t, err)
 	assert.NotNil(t, g)
-	assert.Len(t, g.tmplMap, 13, "should load all 13 templates")
+	assert.Len(t, g.tmplMap, 14, "should load all 14 templates")
 }
 
 func TestGeneratePetstore(t *testing.T) {
@@ -230,4 +230,42 @@ func TestGenerateEmptySpec(t *testing.T) {
 		_, err := os.Stat(filepath.Join(outDir, f))
 		assert.NoError(t, err, "expected %s to exist even for empty spec", f)
 	}
+}
+
+func TestGenerateDigestAuth(t *testing.T) {
+	specBytes, err := os.ReadFile("../testdata/digest_spec.yaml")
+	require.NoError(t, err)
+
+	spec, err := parser.Parse(specBytes, "digest-api", "digest", "", "example.com/digest-api-cli")
+	require.NoError(t, err)
+
+	outDir := t.TempDir()
+	g, err := NewGenerator(spec, outDir)
+	require.NoError(t, err)
+
+	require.NoError(t, g.Generate())
+
+	// digest.go must always be generated
+	digestPath := filepath.Join(outDir, "runtime", "digest.go")
+	_, err = os.Stat(digestPath)
+	assert.NoError(t, err, "runtime/digest.go should exist")
+
+	digestContent, err := os.ReadFile(digestPath)
+	require.NoError(t, err)
+	content := string(digestContent)
+	assert.Contains(t, content, "digestTransport")
+	assert.Contains(t, content, "WWW-Authenticate")
+	assert.Contains(t, content, "computeDigestAuth")
+
+	// client.go must reference digest transport
+	clientContent, err := os.ReadFile(filepath.Join(outDir, "runtime", "client.go"))
+	require.NoError(t, err)
+	assert.Contains(t, string(clientContent), "newDigestTransport")
+
+	// auth.go command must include --username / --password flags
+	authCmdContent, err := os.ReadFile(filepath.Join(outDir, "commands", "auth.go"))
+	require.NoError(t, err)
+	authStr := string(authCmdContent)
+	assert.Contains(t, authStr, `"username"`)
+	assert.Contains(t, authStr, `"password"`)
 }

@@ -1,0 +1,56 @@
+openapi: "3.0.0"
+info:
+  title: Digest Auth API
+  version: "1.0.0"
+  description: A simple API secured with HTTP Digest Authentication
+servers:
+  - url: https://digest-api.example.com/v1
+components:
+  securitySchemes:
+    digestAuth:
+      type: http
+      scheme: digest
+security:
+  - digestAuth: []
+paths:
+  /resources:
+    get:
+      summary: List resources
+      operationId: listResources
+      tags:
+        - resources
+      responses:
+        "200":
+          description: Success
+    post:
+      summary: Create resource
+      operationId: createResource
+      tags:
+        - resources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: Created
+  /resources/{id}:
+    get:
+      summary: Get resource
+      operationId: getResource
+      tags:
+        - resources
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success

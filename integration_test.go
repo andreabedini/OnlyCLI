@@ -394,6 +394,7 @@ func TestIntegration_GeneratedFileStructure(t *testing.T) {
 		"runtime/output.go",
 		"runtime/body.go",
 		"runtime/auth.go",
+		"runtime/digest.go",
 	}
 
 	for _, f := range requiredFiles {
@@ -474,4 +475,76 @@ func TestIntegration_BodyFieldFlags(t *testing.T) {
 	// Pulls create should have body field flags
 	pullCreateHelp := runCLI(t, binPath, "pulls", "create", "--help")
 	assert.Contains(t, pullCreateHelp, "--data")
+}
+
+// --- Digest Auth Integration Tests ---
+
+func TestIntegration_DigestAuthBuildAndRun(t *testing.T) {
+	outDir := generateAndBuild(t, "internal/testdata/digest_spec.yaml", "digest-api", "digest")
+	binPath := goBuild(t, outDir, "digest-api")
+
+	output := runCLI(t, binPath, "--help")
+	assert.Contains(t, output, "digest-api")
+	assert.Contains(t, output, "resources")
+	assert.Contains(t, output, "auth")
+}
+
+func TestIntegration_DigestAuthGoVet(t *testing.T) {
+	outDir := generateAndBuild(t, "internal/testdata/digest_spec.yaml", "digest-api", "digest")
+
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = outDir
+	tidyOut, err := tidyCmd.CombinedOutput()
+	require.NoError(t, err, "go mod tidy failed: %s", string(tidyOut))
+
+	goVet(t, outDir)
+}
+
+func TestIntegration_DigestAuthLoginFlags(t *testing.T) {
+	outDir := generateAndBuild(t, "internal/testdata/digest_spec.yaml", "digest-api", "digest")
+	binPath := goBuild(t, outDir, "digest-api")
+
+	loginHelp, err := exec.Command(binPath, "auth", "login", "--help").CombinedOutput()
+	require.NoError(t, err, "auth login --help failed: %s", string(loginHelp))
+	helpStr := string(loginHelp)
+	assert.Contains(t, helpStr, "--username")
+	assert.Contains(t, helpStr, "--password")
+}
+
+func TestIntegration_DigestAuthClientContent(t *testing.T) {
+	outDir := generateAndBuild(t, "internal/testdata/digest_spec.yaml", "digest-api", "digest")
+
+	clientContent, err := os.ReadFile(filepath.Join(outDir, "runtime", "client.go"))
+	require.NoError(t, err)
+	content := string(clientContent)
+	assert.Contains(t, content, "newDigestTransport")
+	assert.Contains(t, content, "DIGEST_API_USERNAME")
+	assert.Contains(t, content, "DIGEST_API_PASSWORD")
+
+	digestContent, err := os.ReadFile(filepath.Join(outDir, "runtime", "digest.go"))
+	require.NoError(t, err)
+	assert.Contains(t, string(digestContent), "digestTransport")
+	assert.Contains(t, string(digestContent), "computeDigestAuth")
+}
+
+func TestIntegration_DigestAuthAutoDetect(t *testing.T) {
+	specBytes, err := os.ReadFile("internal/testdata/digest_spec.yaml")
+	require.NoError(t, err)
+
+	spec, err := parser.Parse(specBytes, "digest-api", "", "", "example.com/digest-api-cli")
+	require.NoError(t, err)
+	assert.Equal(t, "digest", spec.AuthType)
+
+	outDir := t.TempDir()
+	gen, err := codegen.NewGenerator(spec, outDir)
+	require.NoError(t, err)
+	require.NoError(t, gen.Generate())
+
+	_, err = exec.Command("go", "mod", "tidy").CombinedOutput()
+	// We just check the generated code structure, not compilation here
+	_ = err
+
+	clientContent, err := os.ReadFile(filepath.Join(outDir, "runtime", "client.go"))
+	require.NoError(t, err)
+	assert.Contains(t, string(clientContent), `"digest"`)
 }

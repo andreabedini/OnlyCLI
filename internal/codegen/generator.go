@@ -44,6 +44,7 @@ func NewGenerator(spec *model.APISpec, outDir string) (*Generator, error) {
 		"output.go.tmpl",
 		"body.go.tmpl",
 		"auth.go.tmpl",
+		"digest.go.tmpl",
 		"config_cmd.go.tmpl",
 		"auth_cmd.go.tmpl",
 	}
@@ -84,6 +85,7 @@ func (g *Generator) Generate() error {
 		g.generateOutput,
 		g.generateBody,
 		g.generateAuth,
+		g.generateDigest,
 		g.generateConfigCmd,
 		g.generateAuthCmd,
 	}
@@ -319,6 +321,10 @@ func (g *Generator) generateBody() error {
 	return g.renderGoFile("body.go.tmpl", filepath.Join(g.OutDir, "runtime", "body.go"), nil)
 }
 
+func (g *Generator) generateDigest() error {
+	return g.renderGoFile("digest.go.tmpl", filepath.Join(g.OutDir, "runtime", "digest.go"), nil)
+}
+
 func (g *Generator) generateAuth() error {
 	hasOAuth2 := g.Spec.OAuth2 != nil
 	data := map[string]interface{}{
@@ -338,9 +344,11 @@ func (g *Generator) generateConfigCmd() error {
 
 func (g *Generator) generateAuthCmd() error {
 	hasOAuth2 := g.Spec.OAuth2 != nil
+	hasDigest := strings.EqualFold(g.Spec.AuthType, "digest")
 	data := map[string]interface{}{
 		"ModulePath": g.Spec.ModulePath,
 		"HasOAuth2":  hasOAuth2,
+		"HasDigest":  hasDigest,
 		"Name":       g.Spec.Name,
 	}
 	return g.renderGoFile("auth_cmd.go.tmpl", filepath.Join(g.OutDir, "commands", "auth.go"), data)

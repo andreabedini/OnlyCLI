@@ -294,6 +294,9 @@ func detectAuthType(docModel *libopenapi.DocumentModel[v3.Document]) string {
 		if scheme.Type == "http" && scheme.Scheme == "basic" {
 			return "basic"
 		}
+		if scheme.Type == "http" && scheme.Scheme == "digest" {
+			return "digest"
+		}
 	}
 	return "bearer"
 }
