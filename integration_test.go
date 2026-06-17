@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,6 +133,64 @@ func TestIntegration_PetstoreFlags(t *testing.T) {
 
 	createHelp := runCLI(t, binPath, "pets", "create", "--help")
 	assert.Contains(t, createHelp, "--data")
+}
+
+func TestIntegration_PetstoreHeaderParam(t *testing.T) {
+	outDir := generateAndBuild(t, "internal/testdata/petstore.yaml", "petstore", "apikey")
+	binPath := goBuild(t, outDir, "petstore")
+
+	// The header flag is exposed on the command.
+	listHelp := runCLI(t, binPath, "pets", "list", "--help")
+	assert.Contains(t, listHelp, "--x-api-version")
+
+	// Capture the header value the CLI actually sends, pointing it at a local
+	// server via the *_BASE_URL env override.
+	var gotVersion string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotVersion = r.Header.Get("X-Api-Version")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(binPath, args...)
+		cmd.Env = append(os.Environ(), "PETSTORE_BASE_URL="+srv.URL)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "CLI failed: %s\nArgs: %v", string(out), args)
+	}
+
+	// A required header with a default must NOT force the user to pass it:
+	// the command runs and the header is sent from its default value.
+	run("pets", "list")
+	assert.Equal(t, "2024-01-01", gotVersion, "header should be sent from its default")
+
+	// And it remains overridable via the flag.
+	run("pets", "list", "--x-api-version", "2025-99-99")
+	assert.Equal(t, "2025-99-99", gotVersion, "flag should override the default header")
+}
+
+func TestIntegration_PetstoreDryRunHonoredOnLeaf(t *testing.T) {
+	outDir := generateAndBuild(t, "internal/testdata/petstore.yaml", "petstore", "apikey")
+	binPath := goBuild(t, outDir, "petstore")
+
+	// Global persistent flags (declared on root) must take effect on leaf
+	// commands. With --dry-run the request must NOT be sent.
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+
+	cmd := exec.Command(binPath, "pets", "list", "--dry-run")
+	cmd.Env = append(os.Environ(), "PETSTORE_BASE_URL="+srv.URL)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "CLI failed: %s", string(out))
+
+	assert.Equal(t, 0, hits, "--dry-run must not send the request")
+	assert.Contains(t, string(out), "dry-run: request not sent")
 }
 
 func TestIntegration_PetstoreConfigAndAuth(t *testing.T) {

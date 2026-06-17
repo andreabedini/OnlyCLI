@@ -18,6 +18,13 @@ paths:
       tags:
         - pets
       parameters:
+        - name: X-Api-Version
+          in: header
+          description: The API version to use
+          required: true
+          schema:
+            type: string
+            default: "2024-01-01"
         - name: limit
           in: query
           description: How many items to return at one time (max 100)

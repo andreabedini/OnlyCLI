@@ -43,42 +43,42 @@ type Client struct {
 func NewClientFromConfig(cmd *cobra.Command) *Client {
 	var verbose bool
 	if cmd != nil {
-		if cmd.PersistentFlags().Lookup("verbose") != nil {
-			verbose, _ = cmd.PersistentFlags().GetBool("verbose")
+		if cmd.Flags().Lookup("verbose") != nil {
+			verbose, _ = cmd.Flags().GetBool("verbose")
 		}
 	}
 
 	var pageLimit int
 	if cmd != nil {
-		if cmd.PersistentFlags().Lookup("page-limit") != nil {
-			pageLimit, _ = cmd.PersistentFlags().GetInt("page-limit")
+		if cmd.Flags().Lookup("page-limit") != nil {
+			pageLimit, _ = cmd.Flags().GetInt("page-limit")
 		}
 	}
 
 	var dryRun bool
 	if cmd != nil {
-		if cmd.PersistentFlags().Lookup("dry-run") != nil {
-			dryRun, _ = cmd.PersistentFlags().GetBool("dry-run")
+		if cmd.Flags().Lookup("dry-run") != nil {
+			dryRun, _ = cmd.Flags().GetBool("dry-run")
 		}
 	}
 
 	var maxRetries int
 	if cmd != nil {
-		if cmd.PersistentFlags().Lookup("max-retries") != nil {
-			maxRetries, _ = cmd.PersistentFlags().GetInt("max-retries")
+		if cmd.Flags().Lookup("max-retries") != nil {
+			maxRetries, _ = cmd.Flags().GetInt("max-retries")
 		}
 	}
 
 	var stream bool
 	if cmd != nil {
-		if cmd.PersistentFlags().Lookup("stream") != nil {
-			stream, _ = cmd.PersistentFlags().GetBool("stream")
+		if cmd.Flags().Lookup("stream") != nil {
+			stream, _ = cmd.Flags().GetBool("stream")
 		}
 	}
 
 	profile := ""
-	if cmd != nil && cmd.PersistentFlags().Lookup("profile") != nil {
-		profile, _ = cmd.PersistentFlags().GetString("profile")
+	if cmd != nil && cmd.Flags().Lookup("profile") != nil {
+		profile, _ = cmd.Flags().GetString("profile")
 	}
 
 	var baseURL, token, authType string
@@ -126,21 +126,21 @@ func NewClientFromEnv() *Client {
 	return NewClientFromConfig(nil)
 }
 
-func (c *Client) Do(method, path string, params map[string]string, body []byte) (*Response, error) {
+func (c *Client) Do(method, path string, params map[string]string, headers map[string]string, body []byte) (*Response, error) {
 	if c.Stream {
-		return c.doStream(method, path, params, body)
+		return c.doStream(method, path, params, headers, body)
 	}
 	if c.PageLimit > 0 && method == "GET" {
-		return c.doAllPages(method, path, params, body)
+		return c.doAllPages(method, path, params, headers, body)
 	}
-	return c.doSingle(method, path, params, body)
+	return c.doSingle(method, path, params, headers, body)
 }
 
 // ---------------------------------------------------------------------------
 // Streaming
 // ---------------------------------------------------------------------------
 
-func (c *Client) doStream(method, path string, params map[string]string, body []byte) (*Response, error) {
+func (c *Client) doStream(method, path string, params map[string]string, headers map[string]string, body []byte) (*Response, error) {
 	u, err := url.Parse(c.BaseURL + path)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -153,10 +153,10 @@ func (c *Client) doStream(method, path string, params map[string]string, body []
 
 	rawURL := u.String()
 	if c.DryRun {
-		return c.dryRunResponse(method, rawURL, body)
+		return c.dryRunResponse(method, rawURL, headers, body)
 	}
 
-	httpResp, err := c.roundTripRaw(method, rawURL, body)
+	httpResp, err := c.roundTripRaw(method, rawURL, headers, body)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (sc *streamCloser) Close() error               { return sc.body.Close() }
 // Multi-scheme pagination
 // ---------------------------------------------------------------------------
 
-func (c *Client) doAllPages(method, path string, params map[string]string, body []byte) (*Response, error) {
+func (c *Client) doAllPages(method, path string, params map[string]string, headers map[string]string, body []byte) (*Response, error) {
 	var bodies [][]byte
 	var last *Response
 	nextURL := ""
@@ -196,9 +196,9 @@ func (c *Client) doAllPages(method, path string, params map[string]string, body 
 		var resp *Response
 		var err error
 		if nextURL != "" {
-			resp, err = c.doAbsoluteURL(method, nextURL, body)
+			resp, err = c.doAbsoluteURL(method, nextURL, headers, body)
 		} else {
-			resp, err = c.doSingle(method, path, currentParams, body)
+			resp, err = c.doSingle(method, path, currentParams, headers, body)
 		}
 		if err != nil {
 			return nil, err
@@ -443,7 +443,7 @@ func parseNextLink(linkHeader string) string {
 // Core HTTP
 // ---------------------------------------------------------------------------
 
-func (c *Client) doSingle(method, path string, params map[string]string, body []byte) (*Response, error) {
+func (c *Client) doSingle(method, path string, params map[string]string, headers map[string]string, body []byte) (*Response, error) {
 	u, err := url.Parse(c.BaseURL + path)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -453,29 +453,29 @@ func (c *Client) doSingle(method, path string, params map[string]string, body []
 		q.Set(k, v)
 	}
 	u.RawQuery = q.Encode()
-	return c.doURL(method, u.String(), body)
+	return c.doURL(method, u.String(), headers, body)
 }
 
-func (c *Client) doAbsoluteURL(method, rawURL string, body []byte) (*Response, error) {
+func (c *Client) doAbsoluteURL(method, rawURL string, headers map[string]string, body []byte) (*Response, error) {
 	if _, err := url.Parse(rawURL); err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	return c.doURL(method, rawURL, body)
+	return c.doURL(method, rawURL, headers, body)
 }
 
-func (c *Client) doURL(method, rawURL string, body []byte) (*Response, error) {
+func (c *Client) doURL(method, rawURL string, headers map[string]string, body []byte) (*Response, error) {
 	if c.DryRun {
-		return c.dryRunResponse(method, rawURL, body)
+		return c.dryRunResponse(method, rawURL, headers, body)
 	}
 
-	httpResp, err := c.roundTripRaw(method, rawURL, body)
+	httpResp, err := c.roundTripRaw(method, rawURL, headers, body)
 	if err != nil {
 		return nil, err
 	}
 	return c.bufferResponse(httpResp)
 }
 
-func (c *Client) dryRunResponse(method, rawURL string, body []byte) (*Response, error) {
+func (c *Client) dryRunResponse(method, rawURL string, headers map[string]string, body []byte) (*Response, error) {
 	var bodyReader io.Reader
 	if len(body) > 0 {
 		bodyReader = bytes.NewReader(body)
@@ -484,7 +484,7 @@ func (c *Client) dryRunResponse(method, rawURL string, body []byte) (*Response, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	c.applyRequestHeaders(req, len(body) > 0)
+	c.applyRequestHeaders(req, headers, len(body) > 0)
 
 	fmt.Fprintf(os.Stdout, "%s %s\n", method, rawURL)
 	for k, vv := range req.Header {
@@ -502,7 +502,7 @@ func (c *Client) dryRunResponse(method, rawURL string, body []byte) (*Response, 
 	return &Response{StatusCode: 0, Headers: make(http.Header), Body: nil}, nil
 }
 
-func (c *Client) applyRequestHeaders(req *http.Request, hasBody bool) {
+func (c *Client) applyRequestHeaders(req *http.Request, headers map[string]string, hasBody bool) {
 	if c.Token != "" {
 		switch strings.ToLower(c.AuthType) {
 		case "bearer", "oauth2":
@@ -519,6 +519,12 @@ func (c *Client) applyRequestHeaders(req *http.Request, hasBody bool) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Accept-Encoding", "gzip, deflate")
 	req.Header.Set("User-Agent", "{{.Name}}-cli/onlycli")
+
+	// Per-operation header parameters from the spec are applied last so an
+	// explicit header value overrides the defaults set above.
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 }
 
 func retryBackoffAfterAttempt(attempt int, retryAfterHeader string) time.Duration {
@@ -540,7 +546,7 @@ func retryBackoffAfterAttempt(attempt int, retryAfterHeader string) time.Duratio
 
 // roundTripRaw executes the request with retries and returns the raw *http.Response.
 // The caller is responsible for reading and closing the body.
-func (c *Client) roundTripRaw(method, rawURL string, body []byte) (*http.Response, error) {
+func (c *Client) roundTripRaw(method, rawURL string, headers map[string]string, body []byte) (*http.Response, error) {
 	maxAttempts := 1
 	if c.MaxRetries > 0 {
 		maxAttempts = 1 + c.MaxRetries
@@ -555,7 +561,7 @@ func (c *Client) roundTripRaw(method, rawURL string, body []byte) (*http.Respons
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
-		c.applyRequestHeaders(req, len(body) > 0)
+		c.applyRequestHeaders(req, headers, len(body) > 0)
 
 		if c.Verbose {
 			fmt.Fprintf(os.Stderr, "> %s %s\n", req.Method, req.URL.String())
