@@ -21,8 +21,8 @@ func TestParsePetstore(t *testing.T) {
 	assert.Equal(t, "apikey", spec.AuthType)
 	assert.Equal(t, "PETSTORE_API_KEY", spec.AuthEnvVar)
 
-	// Should have 2 groups: pets and store
-	assert.Len(t, spec.Groups, 2)
+	// Should have 3 groups: pets, store and auth
+	assert.Len(t, spec.Groups, 3)
 
 	// Find pets group
 	var petsGroup, storeGroup *struct {

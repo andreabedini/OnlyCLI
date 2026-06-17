@@ -124,8 +124,22 @@ func (g *Generator) generateRootCmd() error {
 	return g.renderGoFile("root_cmd.go.tmpl", filepath.Join(g.OutDir, "commands", "root.go"), data)
 }
 
+// reservedGroupVarNames are command variable names already emitted by built-in
+// templates (config, auth). When a spec tag maps to one of these, the group
+// shares the built-in command instead of generating a duplicate command file
+// and a second root registration.
+var reservedGroupVarNames = map[string]bool{
+	"config": true,
+	"auth":   true,
+}
+
 func (g *Generator) generateGroupCmds() error {
 	for _, group := range g.Spec.Groups {
+		// Skip groups that collide with a built-in command; the built-in
+		// template owns the command variable and file.
+		if reservedGroupVarNames[model.ToGoPrivateIdentifier(group.Name)] {
+			continue
+		}
 		desc := group.Description
 		if desc == "" {
 			desc = fmt.Sprintf("%s operations", group.Name)
@@ -257,8 +271,9 @@ type registerTemplateData struct {
 }
 
 type registerGroupData struct {
-	VarName  string
-	Commands []registerCommandData
+	VarName     string
+	SkipRootAdd bool // true when the command is already added to root by a built-in template
+	Commands    []registerCommandData
 }
 
 type registerCommandData struct {
@@ -278,8 +293,9 @@ func (g *Generator) generateRegister() error {
 			})
 		}
 		groups = append(groups, registerGroupData{
-			VarName:  gVarName,
-			Commands: cmds,
+			VarName:     gVarName,
+			SkipRootAdd: reservedGroupVarNames[gVarName],
+			Commands:    cmds,
 		})
 	}
 

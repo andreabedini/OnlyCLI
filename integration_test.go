@@ -193,6 +193,27 @@ func TestIntegration_PetstoreDryRunHonoredOnLeaf(t *testing.T) {
 	assert.Contains(t, string(out), "dry-run: request not sent")
 }
 
+func TestIntegration_PetstoreTagCollidesWithBuiltinAuth(t *testing.T) {
+	outDir := generateAndBuild(t, "internal/testdata/petstore.yaml", "petstore", "apikey")
+	binPath := goBuild(t, outDir, "petstore")
+
+	// The spec has an "Auth" tag, which collides with the built-in auth
+	// command. It must be registered exactly once in the root help.
+	help := runCLI(t, binPath, "--help")
+	authLines := 0
+	for _, line := range strings.Split(help, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "auth ") {
+			authLines++
+		}
+	}
+	assert.Equal(t, 1, authLines, "auth should be listed once, got:\n%s", help)
+
+	// The built-in subcommands and the spec operation share one auth command.
+	authHelp := runCLI(t, binPath, "auth", "--help")
+	assert.Contains(t, authHelp, "login")
+	assert.Contains(t, authHelp, "create-token")
+}
+
 func TestIntegration_PetstoreConfigAndAuth(t *testing.T) {
 	outDir := generateAndBuild(t, "internal/testdata/petstore.yaml", "petstore", "apikey")
 	binPath := goBuild(t, outDir, "petstore")

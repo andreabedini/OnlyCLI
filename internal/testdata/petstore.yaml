@@ -131,6 +131,15 @@ paths:
       responses:
         "200":
           description: successful operation
+  /auth/token:
+    post:
+      operationId: createToken
+      summary: Create an auth token
+      tags:
+        - Auth
+      responses:
+        "200":
+          description: successful operation
 components:
   schemas:
     Pet:

@@ -6,7 +6,9 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(authCmd)
 {{- range .Groups}}
+{{- if not .SkipRootAdd}}
 	rootCmd.AddCommand({{.VarName}}Cmd)
+{{- end}}
 {{- range .Commands}}
 	{{.GroupVarName}}Cmd.AddCommand({{.VarName}}Cmd)
 {{- end}}
