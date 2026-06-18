@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/onlycli/onlycli/internal/codegen"
@@ -145,30 +147,34 @@ func TestIntegration_PetstoreHeaderParam(t *testing.T) {
 
 	// Capture the header value the CLI actually sends, pointing it at a local
 	// server via the *_BASE_URL env override.
+	var mu sync.Mutex
 	var gotVersion string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		gotVersion = r.Header.Get("X-Api-Version")
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("[]"))
 	}))
 	defer srv.Close()
 
-	run := func(args ...string) {
+	run := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command(binPath, args...)
 		cmd.Env = append(os.Environ(), "PETSTORE_BASE_URL="+srv.URL)
 		out, err := cmd.CombinedOutput()
 		require.NoError(t, err, "CLI failed: %s\nArgs: %v", string(out), args)
+		mu.Lock()
+		defer mu.Unlock()
+		return gotVersion
 	}
 
 	// A required header with a default must NOT force the user to pass it:
 	// the command runs and the header is sent from its default value.
-	run("pets", "list")
-	assert.Equal(t, "2024-01-01", gotVersion, "header should be sent from its default")
+	assert.Equal(t, "2024-01-01", run("pets", "list"), "header should be sent from its default")
 
 	// And it remains overridable via the flag.
-	run("pets", "list", "--x-api-version", "2025-99-99")
-	assert.Equal(t, "2025-99-99", gotVersion, "flag should override the default header")
+	assert.Equal(t, "2025-99-99", run("pets", "list", "--x-api-version", "2025-99-99"), "flag should override the default header")
 }
 
 func TestIntegration_PetstoreDryRunHonoredOnLeaf(t *testing.T) {
@@ -177,9 +183,9 @@ func TestIntegration_PetstoreDryRunHonoredOnLeaf(t *testing.T) {
 
 	// Global persistent flags (declared on root) must take effect on leaf
 	// commands. With --dry-run the request must NOT be sent.
-	hits := 0
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
+		hits.Add(1)
 		_, _ = w.Write([]byte("[]"))
 	}))
 	defer srv.Close()
@@ -189,7 +195,7 @@ func TestIntegration_PetstoreDryRunHonoredOnLeaf(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "CLI failed: %s", string(out))
 
-	assert.Equal(t, 0, hits, "--dry-run must not send the request")
+	assert.Equal(t, int32(0), hits.Load(), "--dry-run must not send the request")
 	assert.Contains(t, string(out), "dry-run: request not sent")
 }
 

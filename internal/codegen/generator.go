@@ -170,6 +170,8 @@ type operationTemplateData struct {
 	ModulePath   string
 	NeedsFmt     bool
 	NeedsStrings bool
+	HasQuery     bool
+	HasHeaders   bool
 }
 
 type paramTemplateData struct {
@@ -213,10 +215,16 @@ func (g *Generator) generateOperationCmds() error {
 			}
 
 			hasPathParams := false
+			hasQuery := false
+			hasHeaders := false
 			for _, p := range cmd.Parameters {
-				if p.In == "path" {
+				switch p.In {
+				case "path":
 					hasPathParams = true
-					break
+				case "query":
+					hasQuery = true
+				case "header":
+					hasHeaders = true
 				}
 			}
 
@@ -254,6 +262,8 @@ func (g *Generator) generateOperationCmds() error {
 				ModulePath:   g.Spec.ModulePath,
 				NeedsFmt:     hasPathParams || cmd.HasBody,
 				NeedsStrings: hasPathParams,
+				HasQuery:     hasQuery,
+				HasHeaders:   hasHeaders,
 			}
 
 			filename := fmt.Sprintf("%s_%s.go", group.Name, cmd.Name)
