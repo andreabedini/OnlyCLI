@@ -3,8 +3,14 @@
 package commands
 
 import (
+{{- if .HasDigest}}
+	"bufio"
+{{- end}}
 	"fmt"
 	"os"
+{{- if .HasDigest}}
+	"strings"
+{{- end}}
 
 	"{{.ModulePath}}/runtime"
 	"github.com/spf13/cobra"
@@ -25,8 +31,19 @@ var authLoginCmd = &cobra.Command{
 			return fmt.Errorf("flag --username is required")
 		}
 		password, _ := cmd.Flags().GetString("password")
+		passwordStdin, _ := cmd.Flags().GetBool("password-stdin")
+		if passwordStdin {
+			if password != "" {
+				return fmt.Errorf("--password and --password-stdin are mutually exclusive")
+			}
+			line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+			if err != nil && line == "" {
+				return fmt.Errorf("read password from stdin: %w", err)
+			}
+			password = strings.TrimRight(line, "\r\n")
+		}
 		if password == "" {
-			return fmt.Errorf("flag --password is required")
+			return fmt.Errorf("a password is required (use --password or --password-stdin)")
 		}
 		cfg, err := runtime.LoadConfig()
 		if err != nil {
@@ -181,9 +198,9 @@ func init() {
 	authCmd.AddCommand(authLogoutCmd)
 {{- if .HasDigest}}
 	authLoginCmd.Flags().String("username", "", "Username for digest authentication")
-	authLoginCmd.Flags().String("password", "", "Password for digest authentication (prefer env var for security)")
+	authLoginCmd.Flags().String("password", "", "Password for digest authentication (exposes it in shell history; prefer --password-stdin or an env var)")
+	authLoginCmd.Flags().Bool("password-stdin", false, "Read the password from stdin instead of --password")
 	_ = authLoginCmd.MarkFlagRequired("username")
-	_ = authLoginCmd.MarkFlagRequired("password")
 {{- end}}
 {{- if .HasOAuth2}}
 	authLoginCmd.Flags().String("client-id", "", "OAuth2 client ID")

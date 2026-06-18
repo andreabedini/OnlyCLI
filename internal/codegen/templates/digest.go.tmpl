@@ -45,26 +45,35 @@ type digestTransport struct {
 	password  string
 	mu        sync.Mutex
 	nc        int
+	lastNonce string
 }
 
 // RoundTrip implements http.RoundTripper.
 func (t *digestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Buffer the body so we can replay it on the retry.
+	// Buffer the body so we can replay it on the retry without mutating the
+	// caller's request. We re-seed the body on every cloned request whenever
+	// the original carried one, even if it is zero-length, so an empty
+	// non-nil body is not silently dropped on the retry.
 	var bodyBytes []byte
-	if req.Body != nil {
+	hasBody := req.Body != nil
+	if hasBody {
 		var err error
 		bodyBytes, err = io.ReadAll(req.Body)
+		req.Body.Close()
 		if err != nil {
 			return nil, err
 		}
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	}
+	newBody := func() io.ReadCloser {
+		if !hasBody {
+			return nil
+		}
+		return io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 
 	// First attempt (without auth, or with whatever auth is already present).
 	initial := req.Clone(req.Context())
-	if len(bodyBytes) > 0 {
-		initial.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	}
+	initial.Body = newBody()
 
 	resp, err := t.transport.RoundTrip(initial)
 	if err != nil {
@@ -76,8 +85,12 @@ func (t *digestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return resp, nil
 	}
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	if !strings.HasPrefix(strings.ToLower(wwwAuth), "digest ") {
+	// Select the Digest challenge. A server may advertise several schemes on
+	// separate WWW-Authenticate header lines (e.g. Bearer and Digest), so we
+	// iterate the values rather than using Header.Get, which only returns the
+	// first.
+	wwwAuth := digestChallengeHeader(resp.Header)
+	if wwwAuth == "" {
 		return resp, nil
 	}
 
@@ -89,12 +102,18 @@ func (t *digestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
-	// Generate client nonce and increment the nonce count.
+	// Generate client nonce and determine the nonce count. RFC 7616 requires
+	// nc to restart at 1 whenever the server issues a fresh nonce, so reset the
+	// counter when the challenge nonce changes.
 	cnonce, err := generateCnonce()
 	if err != nil {
 		return nil, err
 	}
 	t.mu.Lock()
+	if challenge.nonce != t.lastNonce {
+		t.nc = 0
+		t.lastNonce = challenge.nonce
+	}
 	t.nc++
 	nc := t.nc
 	t.mu.Unlock()
@@ -108,12 +127,21 @@ func (t *digestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	// Retry the request with the Authorization header.
 	req2 := req.Clone(req.Context())
+	req2.Body = newBody()
 	req2.Header.Set("Authorization", authValue)
-	if len(bodyBytes) > 0 {
-		req2.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	}
 
 	return t.transport.RoundTrip(req2)
+}
+
+// digestChallengeHeader returns the first WWW-Authenticate header value that
+// carries a Digest challenge, or "" if none is present.
+func digestChallengeHeader(h http.Header) string {
+	for _, v := range h.Values("WWW-Authenticate") {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(v)), "digest ") {
+			return v
+		}
+	}
+	return ""
 }
 
 // generateCnonce creates a random 16-hex-char client nonce.
@@ -258,12 +286,15 @@ func computeDigestAuth(username, password, method, uri string, c digestChallenge
 		response = h(ha1 + ":" + c.nonce + ":" + ncStr + ":" + cnonce + ":" + c.qop + ":" + ha2)
 	}
 
-	// Build the Authorization header value.
+	// Build the Authorization header value. Quoted-string fields are escaped to
+	// prevent malformed headers or header injection from values that contain
+	// '"', '\', or CR/LF — username is user-supplied and realm/nonce/opaque
+	// come from the (untrusted) server.
 	parts := []string{
-		fmt.Sprintf(`username="%s"`, username),
-		fmt.Sprintf(`realm="%s"`, c.realm),
-		fmt.Sprintf(`nonce="%s"`, c.nonce),
-		fmt.Sprintf(`uri="%s"`, uri),
+		fmt.Sprintf(`username="%s"`, digestQuote(username)),
+		fmt.Sprintf(`realm="%s"`, digestQuote(c.realm)),
+		fmt.Sprintf(`nonce="%s"`, digestQuote(c.nonce)),
+		fmt.Sprintf(`uri="%s"`, digestQuote(uri)),
 		fmt.Sprintf(`response="%s"`, response),
 	}
 
@@ -275,12 +306,24 @@ func computeDigestAuth(username, password, method, uri string, c digestChallenge
 	if c.qop != "" {
 		parts = append(parts, fmt.Sprintf(`qop=%s`, c.qop))
 		parts = append(parts, fmt.Sprintf(`nc=%s`, ncStr))
-		parts = append(parts, fmt.Sprintf(`cnonce="%s"`, cnonce))
+		parts = append(parts, fmt.Sprintf(`cnonce="%s"`, digestQuote(cnonce)))
 	}
 
 	if c.opaque != "" {
-		parts = append(parts, fmt.Sprintf(`opaque="%s"`, c.opaque))
+		parts = append(parts, fmt.Sprintf(`opaque="%s"`, digestQuote(c.opaque)))
 	}
 
 	return "Digest " + strings.Join(parts, ", ")
+}
+
+// digestQuote escapes a value for safe inclusion inside a Digest
+// quoted-string. It strips CR/LF (preventing header injection) and escapes
+// backslashes and double quotes per RFC 7616. Backslashes are escaped before
+// quotes so the escape characters introduced for quotes are not doubled.
+func digestQuote(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
